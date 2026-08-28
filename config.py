@@ -1,5 +1,3 @@
-config 
-
 
 DB_CONFIG = {
 
