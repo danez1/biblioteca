@@ -29,7 +29,7 @@ def index():
         total_livros = cursor.fetchone()["total"]
 
 
-        cursor.execute("SELECT COUNT(*) AS total FROM livro WHERE status = 'Disponível'")
+        cursor.execute("SELECT COUNT(*) AS total FROM livro WHERE status = 'disponível'")
         total_disponiveis = cursor.fetchone()["total"]
 
 
@@ -243,7 +243,7 @@ def cadastrar_livro():
         """
 
 
-        valores = (titulo, autor, categoria, "Disponível")
+        valores = (titulo, autor, categoria, "disponível")
 
 
         cursor.execute(sql, valores)
@@ -349,6 +349,9 @@ def cadastrar_bibliotecario():
 @app.route("/emprestimos")
 def listar_emprestimos():
     try:
+        status = request.args.get("status", "")
+
+
         conexao = conectar()
         cursor = conexao.cursor(dictionary=True)
 
@@ -367,11 +370,17 @@ def listar_emprestimos():
             INNER JOIN aluno a ON e.id_aluno = a.id_aluno
             INNER JOIN livro l ON e.id_livro = l.id_livro
             INNER JOIN bibliotecario b ON e.id_bibliotecario = b.id_bibliotecario
-            ORDER BY e.id_emprestimo DESC
         """
 
 
-        cursor.execute(sql)
+        if status:
+            sql += " WHERE e.status = %s ORDER BY e.id_emprestimo DESC"
+            cursor.execute(sql, (status,))
+        else:
+            sql += " ORDER BY e.id_emprestimo DESC"
+            cursor.execute(sql)
+
+
         emprestimos = cursor.fetchall()
 
 
@@ -379,11 +388,16 @@ def listar_emprestimos():
         conexao.close()
 
 
-        return render_template("emprestimos.html", emprestimos=emprestimos)
+        return render_template(
+            "emprestimos.html",
+            emprestimos=emprestimos,
+            status=status
+        )
 
 
     except Exception as erro:
-        return f"Erro ao listar empréstimos: {erro}"
+        flash(f"Erro ao listar empréstimos: {erro}", "erro")
+        return redirect("/")
 
 
 
@@ -399,7 +413,7 @@ def formulario_emprestimo():
         alunos = cursor.fetchall()
 
 
-        cursor.execute("SELECT * FROM livro WHERE status = 'Disponível' ORDER BY titulo")
+        cursor.execute("SELECT * FROM livro WHERE status = 'disponível' ORDER BY titulo")
         livros = cursor.fetchall()
 
 
@@ -461,7 +475,7 @@ def cadastrar_emprestimo():
             return redirect("/emprestimos/novo")
 
 
-        if livro[0] != "Disponível":
+        if livro[0] != "disponível":
             flash("Este livro não está disponível para empréstimo.", "erro")
             cursor.close()
             conexao.close()
@@ -518,61 +532,74 @@ def cadastrar_emprestimo():
 
 
 
-# Rota para devolução de livro
 @app.route("/emprestimos/devolver/<int:id_emprestimo>")
 def devolver_livro(id_emprestimo):
-
+    conexao = None
+    cursor = None
 
     try:
         conexao = conectar()
         cursor = conexao.cursor(dictionary=True)
 
-
+        # Procurar o empréstimo
         cursor.execute("""
-            SELECT id_livro
+            SELECT id_livro, status
             FROM emprestimo
             WHERE id_emprestimo = %s
         """, (id_emprestimo,))
 
-
         emprestimo = cursor.fetchone()
 
+        if emprestimo is None:
+            flash("Empréstimo não encontrado.", "erro")
+            return redirect("/emprestimos")
 
-        if emprestimo:
+        # Verificar se já foi devolvido
+        if emprestimo["status"] == "Devolvido":
+            flash("Este livro já foi devolvido.", "erro")
+            return redirect("/emprestimos")
 
+        id_livro = emprestimo["id_livro"]
 
-            id_livro = emprestimo["id_livro"]
+        # Atualizar o empréstimo
+        cursor.execute("""
+            UPDATE emprestimo
+            SET data_devolucao = CURDATE(),
+                status = 'Devolvido'
+            WHERE id_emprestimo = %s
+        """, (id_emprestimo,))
 
+        # Deixar o livro disponível novamente
+        cursor.execute("""
+            UPDATE livro
+            SET status = 'Disponível'
+            WHERE id_livro = %s
+        """, (id_livro,))
 
-            cursor.execute("""
-                UPDATE emprestimo
-                SET
-                    data_devolucao = CURDATE(),
-                    status = 'Devolvido'
-                WHERE id_emprestimo = %s
-            """, (id_emprestimo,))
-
-
-            cursor.execute("""
-                UPDATE livro
-                SET status = 'Disponível'
-                WHERE id_livro = %s
-            """, (id_livro,))
-
-
-            conexao.commit()
-
-
-        cursor.close()
-        conexao.close()
+        conexao.commit()
 
         flash("Livro devolvido com sucesso!", "sucesso")
-        return redirect("/emprestimos")
 
+        return redirect("/emprestimos")
 
     except Exception as erro:
-        flash("Erro ao devolver livro.", "erro")
+
+        if conexao:
+            conexao.rollback()
+
+        print("ERRO AO DEVOLVER LIVRO:", erro)
+
+        flash(f"Erro ao devolver livro: {erro}", "erro")
+
         return redirect("/emprestimos")
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conexao:
+            conexao.close()
 
 
 ## Rota CRUD aluno
