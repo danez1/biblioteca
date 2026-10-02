@@ -991,6 +991,7 @@ def autenticar():
             WHERE email = %s
             AND senha = %s
             AND status = 'Ativo'
+            
         """
 
 
