@@ -988,7 +988,7 @@ def autenticar():
         sql = """
             SELECT *
             FROM usuario
-            WHERE login = %s
+            WHERE email = %s
             AND senha = %s
             AND status = 'Ativo'
         """
